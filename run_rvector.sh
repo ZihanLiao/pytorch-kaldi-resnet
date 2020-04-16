@@ -26,7 +26,7 @@ kaldi_voxceleb=/data_102/common_resource/kaldi/egs/voxceleb
 
 # The trials file is downloaded by local/make_voxceleb1.pl.
 trials_root=/data_lfrz612/train_data/voxceleb1/list_of_trial_pairs
-voxceleb1_trials=data/test/trials
+voxceleb1_trials=data/test/trials_e
 voxceleb1_root=/data_lfrz612/train_data/voxceleb1
 voxceleb2_root=/data_lfrz612/train_data/voxceleb2
 musan_root=/data_lfrz612/train_data/musan
@@ -206,7 +206,9 @@ if [ $stage -le 5 ]; then
   awk -v min_length=$min_length 'NR==FNR{a[$1]=$2;next}{if(a[$1]>=min_length)print}' data/train_combined_no_sil/utt2num_frames data/train_combined_no_sil/utt2spk > $log/utt2spk
   # create spk2num_frames, this will be useful for balancing training
   awk '{if(!($2 in a))a[$2]=0;a[$2]+=1;}END{for(i in a)print i,a[i]}' $log/utt2spk > $log/spk2num
+
   # create train (90%) and cv (10%) utterance list
+  rm -f exp/processed/cv.list exp/processed/train.list 2> /dev/null
   awk -v seed=$RANDOM 'BEGIN{srand(seed);}NR==FNR{a[$1]=$2;next}{if(a[$2]<10)print $1>>"exp/processed/train.list";else{if(rand()<=0.1)print $1>>"exp/processed/cv.list";else print $1>>"exp/processed/train.list"}}' $log/spk2num $log/utt2spk
 
   # get the feats.scp for train and cv based on train.list and cv.list
@@ -226,11 +228,11 @@ if [ $stage -le 5 ]; then
 fi
 
 
-log=exp/processed
-expname=test # chance the experiment name to your liking
-expdir=$log/$expname
+expname=resnet34_test # chance the experiment name to your liking
+#expname=resnet34_softmax_epoch20 # chance the experiment name to your liking
+expdir=exp/$expname
 mkdir -p $expdir
-num_spk=`awk 'BEGIN{s=0;}{if($2>s)s=$2;}END{print s+1}' $log/utt2spkid`
+num_spk=`awk 'BEGIN{s=0;}{if($2>s)s=$2;}END{print s+1}' exp/processed/utt2spkid`
 echo "There are "$num_spk" number of speakers."
 
 #chopin-202: 10.92.172.144
@@ -246,114 +248,110 @@ node3=10.92.172.164
 if [ $stage -le 6 ]; then
 #:<<!
   #for ip in $node0 $node1 $node2 $node3;do
+      #--resume $expdir/model_best.pth.tar \
   for ip in $localip;do
-  $cuda_cmd $expdir/train.log \
+  $cuda_cmd $expdir/log/train.log \
   python scripts/imagenet_main.py \
       --arch 'resnet34' --lr 0.1 \
       --print-freq 100 \
       --multiprocessing-distributed \
       --world-size 1 --rank 0 \
-      --gpu-num 4 --workers 8 \
+      --gpu-num 8 --workers 16 \
       --dist-url "tcp://$ip:27544" \
-      --batch-size 512 --epochs 6 \
-      --train-list $log/train_orig.scp --cv-list $log/cv_orig.scp \
-      --resume $expdir/model_best.pth.tar \
-      --utt2spkid $log/utt2spkid --spk-num $num_spk \
-      --input-dim 40 --pooling 'mean+std' \
+      --batch-size 1024 --epochs 20 \
       --min-chunk-size 200 --max-chunk-size 200 \
+      --train-list exp/processed/train_orig.scp --cv-list exp/processed/cv_orig.scp \
+      --utt2spkid exp/processed/utt2spkid --spk-num $num_spk \
+      --input-dim 40 --pooling 'mean+std' \
       --log-dir $expdir
   done
   #exit 0
-:<<!
-
-  python scripts/imagenet_main.py \
-      --arch 'resnet34' --lr 0.4 \
-      --print-freq 100 \
-      --batch-size 128 --gpu 0 --epochs 10 \
-      --train-list $log/train_orig.scp --cv-list $log/cv_orig.scp \
-      --utt2spkid $log/utt2spkid --spk-num $num_spk \
-      --input-dim 30 --hidden-dim 512 \
-      --min-chunk-size 300 --max-chunk-size 500 \
-      --log-dir $expdir
-
-  exit 0
-!
 fi
 
-exit
+#exit
 # !!!note that we also need to apply the same pre-processing to decode data!!!
 if [ $stage -le 7 ]; then
   # This script applies CMVN and removes nonspeech frames.  Note that this is somewhat
   # wasteful, as it roughly doubles the amount of training data on disk.  After
   # creating training examples, this can be removed.
+:<<!
   for x in train test;do
     local/nnet3/xvector/prepare_feats_for_egs.sh --nj $train_nj --cmd "$train_cmd" --compress false \
       data/$x data/${x}_no_sil exp/${x}_no_sil
     local/fix_data_dir.sh data/${x}_no_sil
-    cat data/${x}_no_sil/feats.scp > $log/decode_${x}.scp
+    cat data/${x}_no_sil/feats.scp > exp/processed/decode_${x}.scp
   done
+!
+
+  utils/filter_scp.pl data/train/utt2spk data/train_combined_no_sil/feats.scp | sed 's/data_lfrz613/data/' > exp/processed/decode_train.scp 
+  utils/filter_scp.pl data/test/utt2spk data/test_no_sil/feats.scp | sed 's/data_lfrz613/data/' > exp/processed/decode_test.scp 
 
 fi
 
 
-log=exp/processed
-mkdir -p $log/ivs/
-ivs=$log/ivs/$expname/
+ivs=exp/$expname/ivs
 mkdir -p $ivs
 chmod 777 $expdir/*
 
 # Network Decoding; do this for all your data
 if [ $stage -le 8 ]; then
   model=$expdir/model_best.pth.tar # get best model
+  #model=$expdir/checkpoint_epoch6.pth.tar # get best model
+  [[ ! -f $model ]] && echo "$model not exists" && exit
   for x in train test;do
-  $cuda_cmd $expdir/decode_${x}.log python scripts/decode.py \
-                       --spk_num $num_spk --arch 'resnet34' \
-                       --input-dim 40 --pooling 'mean+std' \
-                       --model-path $model --decode-scp $log/decode_${x}.scp \
-                       --out-path $ivs/embedding_${x}.ark
-
+  $cuda_cmd $expdir/log/decode_${x}.log \
+  python scripts/decode.py \
+      --multiprocessing-distributed \
+      --dist-url "tcp://127.0.0.1:27544" \
+      --world-size 1 --rank 0 \
+      --gpu-num 8 --workers 16 \
+      --batch-size 8 --chunk-size -1 \
+      --spk_num $num_spk --arch 'resnet34' \
+      --input-dim 40 --pooling 'mean+std' \
+      --model-path $model --decode-scp exp/processed/decode_${x}.scp \
+      --out-path $ivs/embeddings_$x
+  #for i in $(seq 0 7);do
+  #  cat $ivs/embedding_train/$i
+  #done | utils/filter_scp.pl data/$x/utt2spk - > $backend_log/${x}.iv
   done
 fi
-exit 0
+#exit 0
 
-train_utt2spk=data/train/utt2spk
-train_spk2utt=data/train/spk2utt
-test_utt2spk=data/test/utt2spk
-mkdir -p exp/backend/
-backend_log=exp/backend/$expname/
+backend_log=exp/$expname/backend
 mkdir -p $backend_log
 
 # get train and test embeddings
-decode=$ivs/embedding.ark
+#decode=$ivs/embedding.ark
 if [ $stage -le 9 ]; then
-    awk 'NR==FNR{a[$1]=1;next}{if($1 in a)print}' $test_utt2spk $ivs/embedding_train.ark > $backend_log/test.iv
-    awk 'NR==FNR{a[$1]=1;next}{if($1 in a)print}' $train_utt2spk $ivs/embedding_test.ark > $backend_log/train.iv
+    # remove duplications
+    cat $ivs/embeddings_train/* | awk '{if(a[$1]!=1){print $0;a[$1]=1}}' > $backend_log/train.iv
+    cat $ivs/embeddings_test/* |  awk '{if(a[$1]!=1){print $0;a[$1]=1}}' > $backend_log/test.iv
 fi
 
 
 if [ $stage -le 10 ]; then
     # Compute the mean vector for centering the evaluation ivectors.
-	$train_cmd $backend_log/compute_mean.log \
+    $train_cmd exp/$expname/log/compute_mean.log \
 		ivector-mean ark:$backend_log/train.iv\
 		$backend_log/mean.vec || exit 1;
 
     # This script uses LDA to decrease the dimensionality prior to PLDA.
     lda_dim=200
-    $train_cmd $backend_log/lda.log \
+    $train_cmd exp/$expname/log/lda.log \
         ivector-compute-lda --total-covariance-factor=0.0 --dim=$lda_dim \
         "ark:ivector-subtract-global-mean ark:$backend_log/train.iv ark:- |" \
-        ark:$train_utt2spk $backend_log/transform.mat || exit 1;
+        ark:data/train/utt2spk $backend_log/transform.mat || exit 1;
 
     # Train the PLDA model.
-    $train_cmd $backend_log/plda.log \
-        ivector-compute-plda ark:$train_spk2utt \
+    $train_cmd exp/$expname/log/plda.log \
+        ivector-compute-plda ark:data/train/spk2utt \
         "ark:ivector-subtract-global-mean ark:$backend_log/train.iv ark:- | transform-vec $backend_log/transform.mat ark:- ark:- | ivector-normalize-length ark:-  ark:- |" \
         $backend_log/plda || exit 1;
 fi
 
 
 if [ $stage -le 11 ]; then
-    $train_cmd $backend_log/test_scoring.log \
+    $train_cmd exp/$expname/log/test_scoring.log \
         ivector-plda-scoring --normalize-length=true \
         "ivector-copy-plda --smoothing=0.0 $backend_log/plda - |" \
         "ark:ivector-subtract-global-mean $backend_log/mean.vec ark:$backend_log/test.iv ark:- | transform-vec $backend_log/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \

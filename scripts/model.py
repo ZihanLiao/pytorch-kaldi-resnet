@@ -388,42 +388,29 @@ class NeuralSpeakerModel(nn.Module):
         x = self.fc1(x)
         return x
 
+    ## ===== ===== ===== ===== ===== ===== ===== =====
+    ## Load parameters
+    ## ===== ===== ===== ===== ===== ===== ===== =====
 
-class AngleLoss(nn.Module):
-    # source: https://github.com/clcarwin/sphereface_pytorch
-    # AngleLoss class
-    def __init__(self, gamma=0):
-        super(AngleLoss, self).__init__()
-        self.gamma   = gamma
-        self.it = 0
-        self.LambdaMin = 5.0
-        self.LambdaMax = 1500.0
-        self.lamb = 1500.0
+    def loadParameters(self, loaded_state):
 
-    def forward(self, input, target):
-        self.it += 1
-        cos_theta,phi_theta = input
-        target = target.view(-1,1) #size=(B,1)
+        #loaded_state = torch.load(path);
+        self_state = self.state_dict();
+        for name, param in loaded_state.items():
+            origname = name;
+            if name not in self_state:
+                name = name.replace("module.", "");
 
-        index = cos_theta.data * 0.0 #size=(B,Classnum)
-        index.scatter_(1,target.data.view(-1,1),1)
-        index = index.byte().detach()
-        #index = Variable(index)
+                if name not in self_state:
+                    print("%s is not in the model."%origname);
+                    continue;
 
-        self.lamb = max(self.LambdaMin,self.LambdaMax/(1+0.01*self.it ))
-        output = cos_theta * 1.0 #size=(B,Classnum)
-        output[index] -= cos_theta[index]*(1.0+0)/(1+self.lamb)
-        output[index] += phi_theta[index]*(1.0+0)/(1+self.lamb)
+            if self_state[name].size() != loaded_state[origname].size():
+                print("Wrong parameter length: %s, model: %s, loaded: %s"%(origname, self_state[name].size(), loaded_state[origname].size()));
+                continue;
 
-        logpt = F.log_softmax(output)
-        logpt = logpt.gather(1,target)
-        logpt = logpt.view(-1)
-        pt = logpt.exp().detach()
+            self_state[name].copy_(param);
 
-        loss = -1 * (1-pt)**self.gamma * logpt
-        loss = loss.mean()
-
-        return loss
 
 class StatsPooling(nn.Module):
     def __init__(self, pooling='mean'):
