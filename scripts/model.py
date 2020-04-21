@@ -338,27 +338,40 @@ class NeuralSpeakerModel(nn.Module):
     @network_type: 1) att (multi-head attention, or attention over T) or 2) lde (LDE, or attention over dictionary components).
     @pooling: aggregation step over the residual vectors 1) mean only or 2) mean and std
     """
-    def __init__(self, spk_num, feat_dim=40, pooling='mean'):
+    def __init__(self, spk_num, feat_dim=40, pooling='mean', loss='softmax', m=0.2, s=30):
         super(NeuralSpeakerModel, self).__init__()
 
+        self.loss = loss
         self.res = resnet34()
 
         _feature_dim = (feat_dim+7) // 8 #default 5
         #self.avgpool = nn.AvgPool2d((1, 3))
         #self.fc1 = nn.Linear(256 * block.expansion, 256)
+        #self.pool = nn.AvgPool2d((1, 25)) #frames/8 
         self.pool = StatsPooling(pooling=pooling)
         self.flat = nn.Flatten(1, -1)
+
         if pooling=='mean':
-            #self.pool = nn.AvgPool2d((1, 25)) #frames/8 
             self.fc1  = nn.Linear(_feature_dim*256, 256)
         if pooling=='mean+std':
-            #self.pool = nn.AvgPool2d((1,3)) #how to get mean+std
             self.fc1  = nn.Linear(_feature_dim*2*256, 256)
-        self.bn1  = nn.BatchNorm1d(256)
-        self.fc1_relu = nn.ReLU(inplace=True)
-        self.fc2  = nn.Linear(256, spk_num)
 
-    def forward(self, x):
+        # need or not ? 
+        if self.loss == 'softmax':
+            self.bn1  = nn.BatchNorm1d(256)
+            self.fc1_relu = nn.ReLU(inplace=True)
+            self.last  = nn.Linear(256, spk_num)
+        elif self.loss == 'AAM':
+            self.last = AAMLayer(in_feats=256, n_classes=spk_num, m=m, s=s) 
+        elif self.loss == 'AAM-v1':
+            self.bn1  = nn.BatchNorm1d(256)
+            self.fc1_relu = nn.ReLU(inplace=True)
+            self.last = AAMLayer(in_feats=256, n_classes=spk_num, m=m, s=s)
+        else:
+            raise NotImplementedError
+            
+
+    def forward(self, x, y=None):
         #print('input size: {}'.format(x.shape))
         x = self.res(x) #128, 256, 5, 25
         #print('layer res size: {}'.format(x.shape))
@@ -370,13 +383,20 @@ class NeuralSpeakerModel(nn.Module):
 
         x = self.fc1(x)
         #print('layer fc1 size: {}'.format(x.shape))
-        x = self.bn1(x)
-        x = self.fc1_relu(x)
 
-        x = self.fc2(x)
+        if self.loss == 'softmax':
+            x = self.bn1(x)
+            x = self.fc1_relu(x)
+            x = self.last(x, y)
+        elif self.loss == 'AAM':
+            x = self.last(x, y)
+        elif self.loss == 'AAM-v1':
+            x = self.bn1(x)
+            x = self.fc1_relu(x)
+            x = self.last(x, y)
+
         #print('layer fc2 size: {}'.format(x.shape))
-        #return F.log_softmax(x, dim=-1)
-	# use torch.nn.CrossEntropyLoss()
+
         return x
 
     def predict(self, x):
@@ -435,3 +455,47 @@ class StatsPooling(nn.Module):
             return output
         else:
             raise NotImplementedError
+
+class AAMLayer(nn.Module):
+    def __init__(self,
+                 in_feats,
+                 n_classes=10,
+                 m=0.3,
+                 s=15, 
+                 easy_margin=False):
+        super(AAMLayer, self).__init__()
+        self.m = m
+        self.s = s
+        self.in_feats = in_feats
+        self.weight = torch.nn.Parameter(torch.FloatTensor(n_classes, in_feats), requires_grad=True)
+        nn.init.xavier_normal_(self.weight, gain=1)
+
+        self.easy_margin = easy_margin
+        self.cos_m = math.cos(m)
+        self.sin_m = math.sin(m)
+
+        # make the function cos(theta+m) monotonic decreasing while theta in [0°,180°]
+        self.th = math.cos(math.pi - m)
+        self.mm = math.sin(math.pi - m) * m
+
+        print('Initialised AAM m=%.3f s=%.3f'%(self.m,self.s))
+
+    def forward(self, x, label=None):
+        # cos(theta)
+        cosine = F.linear(F.normalize(x), F.normalize(self.weight))
+        # cos(theta + m)
+        sine = torch.sqrt((1.0 - torch.pow(cosine, 2)).clamp(0, 1))
+        phi = cosine * self.cos_m - sine * self.sin_m
+
+        if self.easy_margin:
+            phi = torch.where(cosine > 0, phi, cosine)
+        else:
+            phi = torch.where((cosine - self.th) > 0, phi, cosine - self.mm)
+
+        #one_hot = torch.zeros(cosine.size(), device='cuda' if torch.cuda.is_available() else 'cpu')
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, label.view(-1, 1), 1)
+        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
+        output = output * self.s
+
+        return output

@@ -17,7 +17,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 from datasets import SequenceDataset
-from model import NeuralSpeakerModel, AngleLoss
+from model import NeuralSpeakerModel
 
 print(" ".join(sys.argv))
 
