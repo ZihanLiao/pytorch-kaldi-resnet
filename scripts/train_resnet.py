@@ -20,7 +20,7 @@ from datasets import SequenceDataset, SequenceDataset2
 from model import NeuralSpeakerModel
 from accuracy import accuracy
 
-print(" ".join(sys.argv))
+#print(" ".join(sys.argv))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--train-list', type=str, help='training scp')

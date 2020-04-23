@@ -101,6 +101,7 @@ def main():
     idxE = np.nanargmin(np.absolute((np.array(fnrs) - np.array(fprs))))
     eer  = max(fprs[idxE],fnrs[idxE])
 
+    sys.stdout.write("{0:.2%}\n".format(eer))
     sys.stderr.write("eer is {0:.2%}\n".format(eer))
 
 if __name__ == "__main__":

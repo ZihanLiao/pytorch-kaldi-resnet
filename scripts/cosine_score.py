@@ -37,22 +37,14 @@ def compute_std_mean(ark_file, mean, uttlist):
 def main():
     parser = argparse.ArgumentParser("Configuration for data preparation")
     parser.add_argument("--mean", type=str, help="mean vec file")
-    parser.add_argument("--train", type=str, help="train embeddings file")
     parser.add_argument("--enroll", type=str, help="enroll embeddings file")
     parser.add_argument("--test", type=str, help="test embeddings file")
     parser.add_argument("--trials", type=str, help="trials file")
-    parser.add_argument("--save-dir", type=str, help="save dir")
+    parser.add_argument("--score-file", type=str, help="score file")
     args = parser.parse_args()
     if args.mean and os.path.exists(args.mean):
         mean = kaldi_io.read_vec_flt(args.mean)
         print("loaded mean from {}".format(args.mean))
-    elif args.train:
-        mean = compute_mean(args.train)
-        f = open(args.save_dir+'/'+'mean.vec', 'w')
-        f.write(' [ '+' '.join(map(str, mean))+' ]\n')
-        f.close()
-        #np.savetxt(args.save_dir+'/'+'mean.vec', '[ '+' '.join(map(str, mean))+' ]\n')
-        print("saved mean of {} in {}".format(args.train, args.save_dir+'/'+'mean.vec'))
     else:
         print("mean file missing")
         return
@@ -64,15 +56,17 @@ def main():
         utt2vec[utt] = vec - mean
 
     scores_to_file = []
-    for line in open(args.trials, 'r'):
+    f = open(args.trials, 'r')
+    for line in f:
         spkr, utt, target = line.strip().split()
         spkr_vec = torch.FloatTensor(spkr2vec[spkr])
         utt_vec = torch.FloatTensor(utt2vec[utt])
         cos = F.cosine_similarity(spkr_vec, utt_vec, dim=0).data.numpy() 
         scores_to_file.append('{} {} {}'.format(spkr, utt, cos))
+    f.close()
 
-    np.savetxt(args.save_dir+'/'+'scores_cosine', scores_to_file, '%s')
-    print("saved scores of {} in {}".format(args.trials, args.save_dir+'/'+'scores_cosine'))
+    np.savetxt(args.score_file, scores_to_file, '%s')
+    print("saved scores of {} in {}".format(args.trials, args.score_file))
 
     #std, mean = compute_std_mean(args.test, uttlist)
     #print("std: {}, mean: {}".format(std, mean))

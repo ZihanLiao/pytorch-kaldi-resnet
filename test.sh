@@ -47,6 +47,7 @@ if [ $stage -le 12 ]; then
         --mean $modeldir/mean.vec \
         --enroll $modeldir/test.iv \
         --test $modeldir/test.iv \
+        --trials $voxceleb1_trials \
         --score-file $dir/scores_$backend
 :<<!
         ivector-compute-dot-products \

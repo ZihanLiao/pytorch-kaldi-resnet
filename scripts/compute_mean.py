@@ -1,11 +1,9 @@
 import os
 import sys
 import argparse
-import pickle
 import numpy as np
 
 import torch
-import torch.nn.functional as F
 import kaldi_io
 
 def compute_mean(ark_file):
@@ -22,14 +20,15 @@ def compute_mean(ark_file):
     return mean
 
 def main():
-    ark_file = sys.argv[0]
-    mean_file = sys.argv[1]
+    ark_file = sys.argv[1]
+    mean_file = sys.argv[2]
 
     mean = compute_mean(ark_file)
     f = open(mean_file, 'w')
     f.write(' [ '+' '.join(map(str, mean))+' ]\n')
     f.close()
-    print("saved mean of {} in {}".format(ark_file, mean_file)
+    print("saved mean of {} in {}".format(ark_file, mean_file))
 
 if __name__ == '__main__':
     main()
+

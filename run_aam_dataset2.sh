@@ -30,20 +30,19 @@ dir=exp/$expname
 
 epoch=30
 
-mkdir -p $dir
-mkdir -p $dir/pretrained
-
-num_spk=`cat exp/processed/num_spk`
-echo "There are "$num_spk" number of speakers."
-
 # feature prepare in kaldi
 if [ $stage -le 6 ]; then
   #./feature_pre.sh $datadir $stage 0.1
   ./feature_pre.sh $datadir $stage 0.03
 fi
+
+num_spk=`cat $datadir/num_spk`
+echo "There are "$num_spk" number of speakers."
+
 :<<!
 # Network Training
 if [ $stage -le 7 ]; then
+mkdir -p $dir/pretrained
   echo "pretrain model..."
   $cuda_cmd $dir/log/pretrain.log \
       python scripts/train_resnet.py \
@@ -63,6 +62,7 @@ if [ $stage -le 7 ]; then
 fi
 !
 
+mkdir -p $dir
 # pretrained model is softmax loss
 pretrained_model=exp/resnet34_softmax_epoch30/model_best.pth.tar
 if [ $stage -le 8 ]; then
@@ -88,8 +88,6 @@ if [ $stage -le 8 ]; then
 fi
 
 #exit
-
-#chmod 777 $dir/*
 
 # Network Decoding; do this for all your data
 if [ $stage -le 9 ]; then
