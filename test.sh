@@ -43,17 +43,26 @@ if [ $stage -le 12 ]; then
   else
     echo "cosine scoring..."
     $train_cmd $dir/log/test_scoring.log \
+        python scripts/cosine_score.py \
+        --mean $modeldir/mean.vec \
+        --enroll $modeldir/test.iv \
+        --test $modeldir/test.iv \
+        --score-file $dir/scores_$backend
+:<<!
         ivector-compute-dot-products \
         "cat '$voxceleb1_trials' | cut -d\  --fields=1,2 |" \
         "ark:ivector-subtract-global-mean $modeldir/mean.vec ark:$modeldir/test.iv ark:- | ivector-normalize-length ark:- ark:- |" \
         "ark:ivector-subtract-global-mean $modeldir/mean.vec ark:$modeldir/test.iv ark:- | ivector-normalize-length ark:- ark:- |" \
         $dir/scores_$backend || exit 1;
+!
+    
   fi
 fi
 
 
 if [ $stage -le 13 ]; then
-    eer=`compute-eer <(python local/prepare_for_eer.py $voxceleb1_trials $dir/scores_$backend) 2> /dev/null`
+    #eer=`compute-eer <(python local/prepare_for_eer.py $voxceleb1_trials $dir/scores_$backend) 2> /dev/null`
+    eer=`python scripts/compute_eer.py $dir/scores_$backend $voxceleb1_trials 2> /dev/null`
     mindcf1=`python local/compute_min_dcf.py --p-target 0.01 $dir/scores_$backend $voxceleb1_trials 2> /dev/null`
     mindcf2=`python local/compute_min_dcf.py --p-target 0.001 $dir/scores_$backend $voxceleb1_trials 2> /dev/null`
     echo "EER: $eer%" > $dir/eer_$backend

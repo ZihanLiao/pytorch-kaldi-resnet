@@ -17,7 +17,7 @@ import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 
-from datasets import SequenceDataset, EmbeddingDataset, EmbeddingDataset2
+from datasets import SequenceDataset, EmbeddingDataset
 from model import NeuralSpeakerModel
 
 def printf(format, *args):

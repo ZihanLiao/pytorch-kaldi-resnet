@@ -32,6 +32,7 @@ musan_root=/data_lfrz612/train_data/musan
 
 dir=$1
 stage=$2
+cv_percent=$3
 
 if [ $stage -le -1 ]; then
     # link necessary Kaldi directories
@@ -205,9 +206,9 @@ if [ $stage -le 5 ]; then
   # create spk2num_frames, this will be useful for balancing training
   awk '{if(!($2 in a))a[$2]=0;a[$2]+=1;}END{for(i in a)print i,a[i]}' $dir/utt2spk > $dir/spk2num
 
-  # create train (90%) and cv (10%) utterance list
+  # create train (100-cv_percent%) and cv (cv_percent%) utterance list
   rm -f $dir/cv.list $dir/train.list 2> /dev/null
-  awk -v seed=$RANDOM -v dir=$dir 'BEGIN{srand(seed);}NR==FNR{a[$1]=$2;next}{if(a[$2]<10)print $1>>dir"/train.list";else{if(rand()<=0.1)print $1>>dir"/cv.list";else print $1>>dir"/train.list"}}' $dir/spk2num $dir/utt2spk
+  awk -v seed=$RANDOM -v dir=$dir -v cv=$cv_percent 'BEGIN{srand(seed);}NR==FNR{a[$1]=$2;next}{if(a[$2]<10)print $1>>dir"/train.list";else{if(rand()<=cv)print $1>>dir"/cv.list";else print $1>>dir"/train.list"}}' $dir/spk2num $dir/utt2spk
 
   # get the feats.scp for train and cv based on train.list and cv.list
   awk 'NR==FNR{a[$1]=1;next}{if($1 in a)print}' $dir/train.list data/train_combined_no_sil/feats.scp | sed 's/data_lfrz613/data/' | shuf > $dir/train_orig.scp

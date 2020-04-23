@@ -16,10 +16,8 @@ import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 
-from datasets import SequenceDataset
+from datasets import SequenceDataset, SequenceDataset2
 from model import NeuralSpeakerModel
-from loss.arcface import AAMSoftmax
-from loss.softmax import SoftmaxLoss
 from accuracy import accuracy
 
 print(" ".join(sys.argv))
@@ -32,6 +30,7 @@ parser.add_argument('--input-dim', type=int, required=True, help='input feature 
 parser.add_argument('--spk-num', type=int, required=True, help='speaker embedding dimension')
 parser.add_argument('--pooling', type=str, default='mean', help='mean or mean+std')
 parser.add_argument('--loss-type', type=str, default='softmax', help='softmax or AAM')
+parser.add_argument('--dataset', type=str, default='v1', help='v1 or v2')
 parser.add_argument('--min-chunk-size', default=200, type=int,
                     help='minimum feature map length')
 parser.add_argument('--max-chunk-size', default=400, type=int,
@@ -228,20 +227,26 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
-    train_dataset = SequenceDataset(scp_file=args.train_list, utt2spkid_file=args.utt2spkid, chunk_size=[args.max_chunk_size])
+    if args.dataset == "v2":
+        train_dataset = SequenceDataset2(scp_file=args.train_list, utt2spkid_file=args.utt2spkid, chunk_size=args.max_chunk_size)
+    else:
+        train_dataset = SequenceDataset(scp_file=args.train_list, utt2spkid_file=args.utt2spkid, chunk_size=[args.max_chunk_size])
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, num_replicas=args.world_size, rank=args.rank, shuffle=True)
-        print("=> args.world_size: {}, args.rank: {}, samples num: {}".format(args.world_size, args.rank, len(train_sampler)))
+        #print("=> args.world_size: {}, args.rank: {}, samples num: {}".format(args.world_size, args.rank, len(train_sampler)))
     else:
         train_sampler = None
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-    print("=> args.world_size: {}, args.rank: {}, loaded train samples num: {}".format(args.world_size, args.rank, len(train_loader)))
+    print("=> args.world_size: {}, args.rank: {}, args.batch_size: {}, train_loader samples: {}".format(args.world_size, args.rank, args.batch_size, len(train_loader)))
 
-    val = SequenceDataset(scp_file=args.cv_list, utt2spkid_file=args.utt2spkid, chunk_size=[args.max_chunk_size])
+    if args.dataset == "v2":
+        val = SequenceDataset2(scp_file=args.cv_list, utt2spkid_file=args.utt2spkid, chunk_size=args.max_chunk_size)
+    else:
+        val = SequenceDataset(scp_file=args.cv_list, utt2spkid_file=args.utt2spkid, chunk_size=[args.max_chunk_size])
     val_loader = torch.utils.data.DataLoader(
         val, batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)

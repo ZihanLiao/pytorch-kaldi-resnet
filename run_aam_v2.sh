@@ -18,12 +18,16 @@
 # (This script is modified from Kaldi egs/)
 
 . ./cmd.sh
-. ./path.sh
+#. ./path.sh
 set -e
 
 stage=$1
 
-expname=resnet34_aamsoftmax_epoch30_v2
+datadir=exp/processed
+#datadir=exp/processed_cv0.03
+
+#expname=resnet34_aamsoftmax_epoch30_v2
+expname=resnet34_aamsoftmax_epoch4_v2_dataset2
 dir=exp/$expname
 
 mkdir -p $dir
@@ -34,7 +38,8 @@ echo "There are "$num_spk" number of speakers."
 
 # feature prepare in kaldi
 if [ $stage -le 6 ]; then
-  ./feature_pre.sh exp/processed $stage
+  #./feature_pre.sh $datadir $stage 0.1
+  ./feature_pre.sh $datadir $stage 0.03
 fi
 :<<!
 # Network Training
@@ -71,10 +76,11 @@ if [ $stage -le 8 ]; then
       --dist-url "tcp://127.0.0.1:27544" \
       --arch 'resnet34' --input-dim 40 \
       --loss-type "AAM" --pooling 'mean+std' \
-      --lr 0.1 --epochs 30 \
+      --dataset 'v2' \
+      --lr 0.001 --epochs 4 \
       --min-chunk-size 200 --max-chunk-size 200 \
-      --train-list exp/processed/train_orig.scp --cv-list exp/processed/cv_orig.scp \
-      --spk-num $num_spk --utt2spkid exp/processed/utt2spkid \
+      --train-list $datadir/train_orig.scp --cv-list $datadir/cv_orig.scp \
+      --spk-num $num_spk --utt2spkid $datadir/utt2spkid \
       --pretrained $pretrained_model \
       --log-dir $dir
       #--resume $dir/model_best.pth.tar \
@@ -83,9 +89,7 @@ fi
 
 #exit
 
-ivs=$dir/ivs
-mkdir -p $ivs
-chmod 777 $dir/*
+#chmod 777 $dir/*
 
 # Network Decoding; do this for all your data
 if [ $stage -le 9 ]; then
@@ -103,19 +107,18 @@ if [ $stage -le 9 ]; then
       --batch-size 8 --chunk-size -1 \
       --spk_num $num_spk --arch 'resnet34' \
       --input-dim 40 --pooling 'mean+std' \
-      --model-path $model --decode-scp exp/processed/decode_${x}.scp \
-      --out-path $ivs/embeddings_$x
+      --model-path $model --decode-scp $datadir/decode_${x}.scp \
+      --out-path $dir/embeddings_$x
   done
 fi
 #exit 0
 
-backend_log=$dir/backend
-mkdir -p $backend_log
+mkdir -p $dir/backend
 if [ $stage -le 10 ]; then
     echo "get train and test embeddings"
     # remove duplications
-    cat $ivs/embeddings_train/* | awk '{if(a[$1]!=1){print $0;a[$1]=1}}' > $backend_log/train.iv
-    cat $ivs/embeddings_test/* |  awk '{if(a[$1]!=1){print $0;a[$1]=1}}' > $backend_log/test.iv
+    cat $dir/embeddings_train/* | awk '{if(a[$1]!=1){print $0;a[$1]=1}}' > $dir/backend/train.iv
+    cat $dir/embeddings_test/* |  awk '{if(a[$1]!=1){print $0;a[$1]=1}}' > $dir/backend/test.iv
 fi
 
 
@@ -123,26 +126,30 @@ if [ $stage -le 11 ]; then
     echo "compute mean vector..."
     # Compute the mean vector for centering the evaluation ivectors.
     $train_cmd $dir/log/compute_mean.log \
-		ivector-mean ark:$backend_log/train.iv\
-		$backend_log/mean.vec || exit 1;
+        python scripts/compute_mean.py $dir/backend/train.iv \
+        $dir/backend/mean.vec
+:<<!
+		ivector-mean ark:$dir/backend/train.iv\
+		$dir/backend/mean.vec || exit 1;
 
     # This script uses LDA to decrease the dimensionality prior to PLDA.
     lda_dim=200
     $train_cmd $dir/log/lda.log \
         ivector-compute-lda --total-covariance-factor=0.0 --dim=$lda_dim \
-        "ark:ivector-subtract-global-mean ark:$backend_log/train.iv ark:- |" \
-        ark:data/train/utt2spk $backend_log/transform.mat || exit 1;
+        "ark:ivector-subtract-global-mean ark:$dir/backend/train.iv ark:- |" \
+        ark:data/train/utt2spk $dir/backend/transform.mat || exit 1;
 
     # Train the PLDA model.
     $train_cmd $dir/log/plda.log \
         ivector-compute-plda ark:data/train/spk2utt \
-        "ark:ivector-subtract-global-mean ark:$backend_log/train.iv ark:- | transform-vec $backend_log/transform.mat ark:- ark:- | ivector-normalize-length ark:-  ark:- |" \
-        $backend_log/plda || exit 1;
+        "ark:ivector-subtract-global-mean ark:$dir/backend/train.iv ark:- | transform-vec $dir/backend/transform.mat ark:- ark:- | ivector-normalize-length ark:-  ark:- |" \
+        $dir/backend/plda || exit 1;
+!
 fi
 
 if [ $stage -le 12 ]; then
     echo "test ..."
     ./test.sh $dir/backend $dir/backend "cosine" $stage
-    ./test.sh $dir/backend $dir/backend "plda" $stage
+    #./test.sh $dir/backend $dir/backend "plda" $stage
 fi
 
