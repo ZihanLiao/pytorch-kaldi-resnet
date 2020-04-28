@@ -23,12 +23,20 @@ set -e
 
 stage=$1
 
+epoch=30
+
+lr=0.1
+lr_final=0.0001
+
+margin=0.3
+scale=30
+
+#datadir=exp/processed
 datadir=exp/processed_cv0.03
 
-expname=resnet34_aamsoftmax_epoch30_dataset2
+#expname=resnet34_aamsoftmax_epoch30_v2_lr0.001
+expname=resnet34_aamsoftmax_epoch${epoch}_dataset2_lr${lr}_lrf${lr_final}_m${margin}_s${scale}
 dir=exp/$expname
-
-epoch=30
 
 # feature prepare in kaldi
 if [ $stage -le 6 ]; then
@@ -76,8 +84,9 @@ if [ $stage -le 8 ]; then
       --dist-url "tcp://127.0.0.1:27544" \
       --arch 'resnet34' --input-dim 40 \
       --loss-type "AAM" --pooling 'mean+std' \
-      --dataset 'v2' \
-      --lr 0.001 --epochs $epoch \
+      --margin $margin --scale $scale \
+      --dataset 'v2' --epochs $epoch \
+      --lr $lr --lr-final $lr_final \
       --min-chunk-size 200 --max-chunk-size 200 \
       --train-list $datadir/train_orig.scp --cv-list $datadir/cv_orig.scp \
       --spk-num $num_spk --utt2spkid $datadir/utt2spkid \
@@ -125,6 +134,18 @@ if [ $stage -le 11 ]; then
     $train_cmd $dir/log/compute_mean.log \
         python scripts/compute_mean.py $dir/backend/train.iv \
         $dir/backend/mean.vec
+
+    $train_cmd $dir/log/compute_speaker_mean.log \
+        python scripts/compute_speaker_mean.py $dir/backend/train.iv \
+        $datadir/utt2spk $dir/backend/spk_mean.vec
+
+    $train_cmd $dir/log/compute_topk_mean_std.py \
+        python scripts/compute_topk_mean_std.py \
+        --mean $dir/backend/mean.vec \
+        --cohort-file $dir/backend/spk_mean.vec \
+        --ark-file $dir/backend/test.iv \
+        --mean-std-file $dir/backend/topk_mean_std
+
 :<<!
 		ivector-mean ark:$dir/backend/train.iv\
 		$dir/backend/mean.vec || exit 1;
@@ -144,7 +165,7 @@ if [ $stage -le 11 ]; then
 !
 fi
 
-if [ $stage -le 12 ]; then
+if [ $stage -le 13 ]; then
     echo "test ..."
     ./test.sh $dir/backend $dir/backend "cosine" $stage
     #./test.sh $dir/backend $dir/backend "plda" $stage

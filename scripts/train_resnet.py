@@ -30,6 +30,8 @@ parser.add_argument('--input-dim', type=int, required=True, help='input feature 
 parser.add_argument('--spk-num', type=int, required=True, help='speaker embedding dimension')
 parser.add_argument('--pooling', type=str, default='mean', help='mean or mean+std')
 parser.add_argument('--loss-type', type=str, default='softmax', help='softmax or AAM')
+parser.add_argument('--margin', type=float, default=0.2, help='margin for AAM')
+parser.add_argument('--scale', type=float, default=30, help='scale for AAM')
 parser.add_argument('--dataset', type=str, default='v1', help='v1 or v2')
 parser.add_argument('--min-chunk-size', default=200, type=int,
                     help='minimum feature map length')
@@ -53,6 +55,8 @@ parser.add_argument('-b', '--batch-size', default=128, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--lr-final', '--final-learning-rate', default=0.0001, type=float,
+                    metavar='LR', help='final learning rate', dest='lr_final')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -146,7 +150,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
 
     print("=> creating model '{}'".format(args.arch))
-    model = NeuralSpeakerModel(spk_num=args.spk_num, feat_dim=args.input_dim, pooling=args.pooling, loss=args.loss_type, m=0.2, s=30)
+    model = NeuralSpeakerModel(spk_num=args.spk_num, feat_dim=args.input_dim, pooling=args.pooling, loss=args.loss_type, m=args.margin, s=args.scale)
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('===> Model total parameter: {}'.format(model_params))
 
@@ -199,7 +203,7 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=args.lr_final, last_epoch=-1)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -218,7 +222,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 #best_acc1 = best_acc1.to(args.gpu)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=args.start_epoch-1)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0.0001, last_epoch=args.start_epoch-1)
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
@@ -256,7 +260,7 @@ def main_worker(gpu, ngpus_per_node, args):
         return
 
     for epoch in range(args.start_epoch, args.epochs):
-        print('Epoch %d' % epoch)
+        #print('Epoch %d' % epoch)
         if args.distributed:
             train_sampler.set_epoch(epoch)
         #adjust_learning_rate(optimizer, epoch, args)

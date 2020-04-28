@@ -20,9 +20,9 @@ export cuda_cmd="run.pl"
 #export cuda_cmd="slurm.pl --mem 10G --gpu 1 --config conf/slurm.conf"
 !
 #:<<!
-export train_cmd="run.pl"
-export decode_cmd="run.pl"
-export cuda_cmd="run.pl"
+export train_cmd="utils/run.pl"
+export decode_cmd="utils/run.pl"
+export cuda_cmd="utils/run.pl"
 #!
 export train_nj=48
 export decode_nj=10
