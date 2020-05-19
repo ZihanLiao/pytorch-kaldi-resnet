@@ -26,16 +26,19 @@ stage=$1
 epoch=30
 
 lr=0.1
-lr_final=0.0001
+lr_final=0
+weight_decay=0.0005
 
-margin=0.3
+margin=0.2
 scale=30
 
 #datadir=exp/processed
 datadir=exp/processed_cv0.03
 
 #expname=resnet34_aamsoftmax_epoch30_v2_lr0.001
-expname=resnet34_aamsoftmax_epoch${epoch}_dataset2_lr${lr}_lrf${lr_final}_m${margin}_s${scale}
+#expname=resnet34_aamsoftmax_epoch${epoch}_dataset2_lr${lr}_lrf${lr_final}_m${margin}_s${scale}
+#expname=resnet34_aamsoftmax_epoch${epoch}_dataset2_lr${lr}_lrf${lr_final}
+expname=resnet34_aamsoftmax_epoch${epoch}_dataset2_wd${weight_decay}_fine_tuned
 dir=exp/$expname
 
 # feature prepare in kaldi
@@ -72,7 +75,8 @@ fi
 
 mkdir -p $dir
 # pretrained model is softmax loss
-pretrained_model=exp/resnet34_softmax_epoch30/model_best.pth.tar
+#pretrained_model=exp/resnet34_softmax_epoch30/model_best.pth.tar
+pretrained_model=exp/resnet34_aamsoftmax_epoch30_dataset2_wd0.00005/model_best.pth.tar
 if [ $stage -le 8 ]; then
   echo "train model in $dir ..."
   $cuda_cmd $dir/log/train.log \
@@ -87,6 +91,7 @@ if [ $stage -le 8 ]; then
       --margin $margin --scale $scale \
       --dataset 'v2' --epochs $epoch \
       --lr $lr --lr-final $lr_final \
+      --wd $weight_decay \
       --min-chunk-size 200 --max-chunk-size 200 \
       --train-list $datadir/train_orig.scp --cv-list $datadir/cv_orig.scp \
       --spk-num $num_spk --utt2spkid $datadir/utt2spkid \
@@ -167,7 +172,8 @@ fi
 
 if [ $stage -le 13 ]; then
     echo "test ..."
-    ./test.sh $dir/backend $dir/backend "cosine" $stage
     #./test.sh $dir/backend $dir/backend "plda" $stage
+    #./test.sh $dir/backend $dir/backend "cosine" $stage
+    ./test.sh $dir/backend $dir/backend "snorm" $stage
 fi
 

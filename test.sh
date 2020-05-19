@@ -1,24 +1,11 @@
 #!/bin/bash
 
-# Author: Nanxin Chen, Cheng-I Lai
-# Pipeline for preprocessing + training + postprocessing neural speaker embeddings. This includes:
-# step 0:  create VoxCeleb1+2 data directories
-# step 1:  make FBanks + VADs (based on MFCCs) for clean data
-# step 2:  data augmentation
-# step 3:  make FBanks for noisy data
-# step 4:  applies CM and removes silence (for training data)
-# step 5:  filter by length, split to train/cv, and (optional) save as pytorch tensors
-# step 6:  nn training
-# step 7:  applies CM and removes silence (for decoding data)
-# step 8:  decode with the trained nn
-# step 9:  get train and test embeddings
-# step 10: compute mean, LDA and PLDA on decode embeddings
-# step 11: scoring
-# step 12: EER & minDCF results
-# (This script is modified from Kaldi egs/)
+# Author: Hongmei Liu
+# step 12: scoring
+# step 13: EER & minDCF results
 
 . ./cmd.sh
-. ./path.sh
+#. ./path.sh
 set -e
 
 #voxceleb1_trials=data/test/trials_o
@@ -50,15 +37,6 @@ if [ $stage -le 12 ]; then
         --test $modeldir/test.iv \
         --trials $voxceleb1_trials \
         --score-file $dir/$score_file
-
-    $train_cmd $dir/log/adaptive_snorm.log \
-        python scripts/adaptive_snorm.py \
-        --enroll $dir/topk_mean_std \
-        --test $dir/topk_mean_std \
-        --score-in $dir/$score_file \
-        --score-out $dir/${score_file}_adapt_snorm
-    score_file=${score_file}_adapt_snorm
-    eer_file=${eer_file}_adapt_snorm
 :<<!
         ivector-compute-dot-products \
         "cat '$voxceleb1_trials' | cut -d\  --fields=1,2 |" \
@@ -68,8 +46,21 @@ if [ $stage -le 12 ]; then
 !
     
   fi
+  if [ $backend == 'snorm' ];then
+    echo "adptive S-norm..."
+    $train_cmd $dir/log/adaptive_snorm.log \
+        python scripts/adaptive_snorm.py \
+        --enroll $dir/topk_mean_std \
+        --test $dir/topk_mean_std \
+        --score-in $dir/$score_file \
+        --score-out $dir/${score_file}_adapt_snorm
+  fi
 fi
 
+if [ $backend == 'snorm' ];then
+  score_file=${score_file}_adapt_snorm
+  eer_file=${eer_file}_adapt_snorm
+fi
 
 if [ $stage -le 13 ]; then
     #eer=`compute-eer <(python local/prepare_for_eer.py $voxceleb1_trials $dir/$score_file) 2> /dev/null`

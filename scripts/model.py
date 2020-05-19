@@ -387,7 +387,7 @@ class NeuralSpeakerModel(nn.Module):
         if self.loss == 'softmax':
             x = self.bn1(x)
             x = self.fc1_relu(x)
-            x = self.last(x, y)
+            x = self.last(x)
         elif self.loss == 'AAM':
             x = self.last(x, y)
         elif self.loss == 'AAM-v1':

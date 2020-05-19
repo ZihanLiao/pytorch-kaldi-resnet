@@ -23,15 +23,21 @@ set -e
 
 stage=$1
 
-datadir=exp/processed
-#datadir=exp/processed_cv0.03
+epoch=30
+
+lr=0.1
+lr_final=0
+weight_decay=0.0005
+
+margin=0.2
+scale=30
+#datadir=exp/processed
+datadir=exp/processed_cv0.03
 
 #expname=resnet34_aamsoftmax_epoch30_v2
-expname=resnet34_aamsoftmax_epoch4_v2_dataset2
+#expname=resnet34_aamsoftmax_epoch${epoch}_wd${weight_decay}_fine_tuned
+expname=resnet34_aamsoftmax_epoch${epoch}_wd${weight_decay}
 dir=exp/$expname
-
-mkdir -p $dir
-mkdir -p $dir/pretrained
 
 num_spk=`cat exp/processed/num_spk`
 echo "There are "$num_spk" number of speakers."
@@ -41,9 +47,14 @@ if [ $stage -le 6 ]; then
   #./feature_pre.sh $datadir $stage 0.1
   ./feature_pre.sh $datadir $stage 0.03
 fi
-:<<!
+
+num_spk=`cat $datadir/num_spk`
+echo "There are "$num_spk" number of speakers."
+
+#:<<!
 # Network Training
 if [ $stage -le 7 ]; then
+mkdir -p $dir/pretrained
   echo "pretrain model..."
   $cuda_cmd $dir/log/pretrain.log \
       python scripts/train_resnet.py \
@@ -54,17 +65,21 @@ if [ $stage -le 7 ]; then
       --dist-url "tcp://127.0.0.1:27544" \
       --arch 'resnet34' --input-dim 40 \
       --loss-type "softmax" --pooling 'mean+std' \
-      --lr 0.1 --epochs 6 \
+      --dataset 'v1' --epochs $epoch \
+      --lr $lr --lr-final $lr_final \
+      --wd $weight_decay \
       --min-chunk-size 200 --max-chunk-size 200 \
-      --train-list exp/processed/train_orig.scp --cv-list exp/processed/cv_orig.scp \
-      --spk-num $num_spk --utt2spkid exp/processed/utt2spkid \
+      --train-list $datadir/train_orig.scp --cv-list $datadir/cv_orig.scp \
+      --spk-num $num_spk --utt2spkid $datadir/utt2spkid \
       --log-dir $dir/pretrained
       #--resume $dir/model_best.pth.tar \
 fi
-!
+#!
 
+mkdir -p $dir
 # pretrained model is softmax loss
-pretrained_model=exp/resnet34_softmax_epoch30/model_best.pth.tar
+#pretrained_model=exp/resnet34_softmax_epoch30/model_best.pth.tar
+pretrained_model=$dir/pretrained/model_best.pth.tar
 if [ $stage -le 8 ]; then
   echo "train model in $dir ..."
   $cuda_cmd $dir/log/train.log \
@@ -76,8 +91,10 @@ if [ $stage -le 8 ]; then
       --dist-url "tcp://127.0.0.1:27544" \
       --arch 'resnet34' --input-dim 40 \
       --loss-type "AAM" --pooling 'mean+std' \
-      --dataset 'v2' \
-      --lr 0.001 --epochs 4 \
+      --margin $margin --scale $scale \
+      --dataset 'v1' --epochs $epoch \
+      --lr $lr --lr-final $lr_final \
+      --wd $weight_decay \
       --min-chunk-size 200 --max-chunk-size 200 \
       --train-list $datadir/train_orig.scp --cv-list $datadir/cv_orig.scp \
       --spk-num $num_spk --utt2spkid $datadir/utt2spkid \
@@ -89,13 +106,10 @@ fi
 
 #exit
 
-#chmod 777 $dir/*
-
 # Network Decoding; do this for all your data
 if [ $stage -le 9 ]; then
   echo "produce embeddings"
   model=$dir/model_best.pth.tar # get best model
-  #model=$dir/checkpoint_epoch6.pth.tar # get best model
   [[ ! -f $model ]] && echo "$model not exists" && exit
   for x in train test;do
   $cuda_cmd $dir/log/decode_${x}.log \
@@ -128,6 +142,18 @@ if [ $stage -le 11 ]; then
     $train_cmd $dir/log/compute_mean.log \
         python scripts/compute_mean.py $dir/backend/train.iv \
         $dir/backend/mean.vec
+
+    $train_cmd $dir/log/compute_speaker_mean.log \
+        python scripts/compute_speaker_mean.py $dir/backend/train.iv \
+        $datadir/utt2spk $dir/backend/spk_mean.vec
+
+    $train_cmd $dir/log/compute_topk_mean_std.py \
+        python scripts/compute_topk_mean_std.py \
+        --mean $dir/backend/mean.vec \
+        --cohort-file $dir/backend/spk_mean.vec \
+        --ark-file $dir/backend/test.iv \
+        --mean-std-file $dir/backend/topk_mean_std
+
 :<<!
 		ivector-mean ark:$dir/backend/train.iv\
 		$dir/backend/mean.vec || exit 1;
@@ -147,9 +173,10 @@ if [ $stage -le 11 ]; then
 !
 fi
 
-if [ $stage -le 12 ]; then
+if [ $stage -le 13 ]; then
     echo "test ..."
-    ./test.sh $dir/backend $dir/backend "cosine" $stage
     #./test.sh $dir/backend $dir/backend "plda" $stage
+    ./test.sh $dir/backend $dir/backend "cosine" $stage
+    ./test.sh $dir/backend $dir/backend "snorm" $stage
 fi
 

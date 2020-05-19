@@ -13,17 +13,17 @@
 export train_cmd="slurm.pl --config $1"
 export decode_cmd="slurm.pl --config $1"
 !
-:<<!
+#:<<!
 export train_cmd="slurm.pl"
 export decode_cmd="slurm.pl"
 export cuda_cmd="run.pl"
 #export cuda_cmd="slurm.pl --mem 10G --gpu 1 --config conf/slurm.conf"
-!
-#:<<!
+#!
+:<<!
 export train_cmd="utils/run.pl"
 export decode_cmd="utils/run.pl"
 export cuda_cmd="utils/run.pl"
-#!
+!
 export train_nj=30
 export decode_nj=10
 
