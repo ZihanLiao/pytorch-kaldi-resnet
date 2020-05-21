@@ -21,6 +21,7 @@ class SequenceDataset(Dataset):
                 id_count[int(label)] = 0
             id_count[int(label)] += 1
         max_id_count = int((max(id_count.values())+1)/2)
+        max_id_count = min(500, max_id_count)
 
         for line in open(scp_file):
             utt, rxfile = line.rstrip().split()

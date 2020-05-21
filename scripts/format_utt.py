@@ -28,7 +28,7 @@ for line in open(wav2label, 'r'):
     else:
         raise Exception('format error: {}'.format(line))
     if lab not in labs:
-        labs[lab] = "id{:03d}".format(ind)
+        labs[lab] = "id{:04d}".format(ind)
         ind = ind + 1
     spk = labs[lab]
 

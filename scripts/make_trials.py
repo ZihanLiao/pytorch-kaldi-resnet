@@ -54,11 +54,8 @@ def main():
             spkr = test_utt2spkr[utt]
             if spkr in enroll_spkr:
                 trials.append('{} {} target'.format(spkr, utt))
-                trials.append('{} {} nontarget'.format(spkr, np.random.choice(music)))
-                trials.append('{} {} nontarget'.format(spkr, np.random.choice(music)))
-                trials.append('{} {} nontarget'.format(spkr, np.random.choice(music)))
-                trials.append('{} {} nontarget'.format(spkr, np.random.choice(music)))
-                trials.append('{} {} nontarget'.format(spkr, np.random.choice(music)))
+                for n in range(len(enroll_spkr)):
+                    trials.append('{} {} nontarget'.format(spkr, np.random.choice(music)))
 
     np.savetxt(args.trials, trials, '%s')
     print("saved {} trials in {}".format(len(trials), args.trials))
